@@ -26,8 +26,8 @@ io.on("connection", (socket) => {
     io.emit("newMember", members);
   });
   // member making offer
-  socket.on("makeOffer", ({ to, offer }) => {
-    socket.to(to).emit("receiveOffer", { offer, from: socket.id });
+  socket.on("makeOffer", ({ to, offer, nickName }) => {
+    socket.to(to).emit("receiveOffer", { offer, from: socket.id, nickName });
   });
   // recipient of offer responds with answer
   socket.on("makeAnswer", ({ to, answer }) => {

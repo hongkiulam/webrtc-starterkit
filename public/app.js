@@ -26,17 +26,6 @@ const onError = (error) => {
   console.error(error);
 };
 
-// get media permissions on page load
-(async () => {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: true,
-    audio: true,
-  });
-  stream.getTracks().forEach((track) => {
-    track.stop();
-  });
-})();
-
 /****************************************************************************
  * Signalling server
  ****************************************************************************/
@@ -45,6 +34,7 @@ const onError = (error) => {
 const socket = io();
 let otherUser;
 let isAlreadyCalling = false;
+let callAccepted = false;
 
 socket.emit("join", nickName);
 // show connected members
@@ -70,6 +60,7 @@ const makeOffer = (to, offer) => {
   socket.emit("makeOffer", {
     to,
     offer,
+    nickName,
   });
 };
 const makeAnswer = (to, answer) => {
@@ -80,13 +71,18 @@ const makeAnswer = (to, answer) => {
 };
 // signal listeners
 // receive offer from offerer
-socket.on("receiveOffer", async ({ offer, from }) => {
+socket.on("receiveOffer", async ({ offer, from, nickName }) => {
   otherUser = from;
-  await createPeerConnection();
-  await pc.setRemoteDescription(new RTCSessionDescription(offer));
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(new RTCSessionDescription(answer));
-  makeAnswer(from, answer);
+  callAccepted = callAccepted || confirm(`Call from ${nickName}\nAccept call?`);
+  if (callAccepted) {
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(new RTCSessionDescription(answer));
+    makeAnswer(from, answer);
+  } else {
+    closeVideoCall();
+    socket.emit("closeVideoCall", otherUser);
+  }
 });
 
 socket.on("receiveAnswer", async ({ answer, from }) => {
@@ -141,6 +137,7 @@ const createPeerConnection = async () => {
     handleUserMediaError(e);
   }
 };
+createPeerConnection();
 
 /**
  * Handles error if client can't get video or audio
@@ -170,10 +167,10 @@ const invite = async (e) => {
   if (nickName == e.target.dataset.nickName) {
     return alert(`Can't call yourself!`);
   }
-  if (pc) {
+  if (isAlreadyCalling) {
     return alert("Already Connected");
   }
-  await createPeerConnection();
+
   const offer = await pc.createOffer();
   await pc.setLocalDescription(new RTCSessionDescription(offer));
   makeOffer(e.target.dataset.socketId, offer);
@@ -199,10 +196,33 @@ const closeVideoCall = () => {
   remoteVideo.removeAttribute("src");
   remoteVideo.removeAttribute("srcObject");
   localVideo.removeAttribute("src");
-  remoteVideo.removeAttribute("srcObject");
+  localVideo.removeAttribute("srcObject");
 
   document.getElementById("hangup-button").disabled = true;
-  pc = null;
   localStream = null;
   isAlreadyCalling = false;
+  callAccepted = false;
+  pc.close();
+  createPeerConnection();
 };
+
+// pause video/ audio tracks
+
+const pauseVideo = (videoElement) => {
+  videoElement.srcObject
+    .getVideoTracks()
+    .forEach((vT) => (vT.enabled = !vT.enabled));
+};
+
+const mute = (videoElement) => {
+  videoElement.srcObject
+    .getAudioTracks()
+    .forEach((aT) => (aT.enabled = !aT.enabled));
+};
+
+document.getElementById("pauseVideo-button").addEventListener("click", () => {
+  pauseVideo(localVideo);
+});
+document.getElementById("mute-button").addEventListener("click", () => {
+  mute(localVideo);
+});
