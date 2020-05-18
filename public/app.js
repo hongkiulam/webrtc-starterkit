@@ -30,12 +30,14 @@ const onError = (error) => {
  * Signalling server
  ****************************************************************************/
 
-//connect to socket
+// >> connect to socket >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 const socket = io();
 let otherUser;
 let isAlreadyCalling = false;
 let callAccepted = false;
+let callConnected = false;
 
+//join server
 socket.emit("join", nickName);
 // show connected members
 socket.on("newMember", (members) => {
@@ -55,7 +57,7 @@ socket.on("newMember", (members) => {
   });
 });
 
-// signal events
+// >> signal events >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 const makeOffer = (to, offer) => {
   socket.emit("makeOffer", {
     to,
@@ -69,12 +71,14 @@ const makeAnswer = (to, answer) => {
     answer,
   });
 };
-// signal listeners
+// >> signal listeners >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 // receive offer from offerer
 socket.on("receiveOffer", async ({ offer, from, nickName }) => {
   otherUser = from;
   callAccepted = callAccepted || confirm(`Call from ${nickName}\nAccept call?`);
   if (callAccepted) {
+    callConnected = true;
+    await getMedia();
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(new RTCSessionDescription(answer));
@@ -109,7 +113,7 @@ let localStream;
 /**
  * Establish RTCPeerConnection
  */
-const createPeerConnection = async () => {
+const createPeerConnection = () => {
   pc = new RTCPeerConnection();
 
   // set remote video
@@ -121,8 +125,13 @@ const createPeerConnection = async () => {
     // allow hangup when remote video connected
     document.getElementById("hangup-button").disabled = false;
   };
+};
+createPeerConnection();
 
-  // get user video and audio
+/**
+ * Get Video and Sound
+ */
+const getMedia = async () => {
   const localVideo = document.getElementById("localVideo");
   try {
     localStream = await navigator.mediaDevices.getUserMedia({
@@ -137,7 +146,6 @@ const createPeerConnection = async () => {
     handleUserMediaError(e);
   }
 };
-createPeerConnection();
 
 /**
  * Handles error if client can't get video or audio
@@ -167,17 +175,19 @@ const invite = async (e) => {
   if (nickName == e.target.dataset.nickName) {
     return alert(`Can't call yourself!`);
   }
-  if (isAlreadyCalling) {
+  if (callConnected) {
     return alert("Already Connected");
   }
-
+  callConnected = true;
+  await getMedia();
   const offer = await pc.createOffer();
   await pc.setLocalDescription(new RTCSessionDescription(offer));
   makeOffer(e.target.dataset.socketId, offer);
   otherUser = e.target.dataset.socketId;
 };
 
-// hangup logic
+// >> hangup logic >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
 document.getElementById("hangup-button").addEventListener("click", (e) => {
   e.preventDefault();
   socket.emit("closeVideoCall", otherUser);
@@ -187,26 +197,30 @@ document.getElementById("hangup-button").addEventListener("click", (e) => {
 const closeVideoCall = () => {
   const localVideo = document.getElementById("localVideo");
   const remoteVideo = document.getElementById("remoteVideo");
+
+  localStream.getTracks().forEach((track) => track.stop());
+
   if (remoteVideo.srcObject) {
     remoteVideo.srcObject.getTracks().forEach((track) => track.stop());
   }
   if (localVideo.srcObject) {
     localVideo.srcObject.getTracks().forEach((track) => track.stop());
   }
+  remoteVideo.src = remoteVideo.srcObject = localVideo.src = localVideo.srcObject = undefined;
   remoteVideo.removeAttribute("src");
   remoteVideo.removeAttribute("srcObject");
   localVideo.removeAttribute("src");
   localVideo.removeAttribute("srcObject");
 
   document.getElementById("hangup-button").disabled = true;
-  localStream = null;
   isAlreadyCalling = false;
   callAccepted = false;
+  callConnected = false;
   pc.close();
   createPeerConnection();
 };
 
-// pause video/ audio tracks
+// >> pause video/ audio tracks >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 const pauseVideo = (videoElement) => {
   videoElement.srcObject
